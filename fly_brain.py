@@ -1,19 +1,29 @@
 from flask import Flask, request, jsonify
 import psycopg2
-import random
 import os
+import random
 
 app = Flask(__name__)
 
-# 🔗 CONNECT TO YOUR PERMANENT ONLINE SUPABASE DATABASE
-DB_URL = os.environ.get('DATABASE_URL', 'postgresql://postgres:WFOQjzvO8gi9LTRD@db.svvqditsloucflenpuog.supabase.co:6543/postgres')
+# --- HÄR LÄGGER VI IN DINA DIREKTA UPPGIFTER ---
+# Byt ut 'DITT_LÖSENORD' mot lösenordet du skapade på Supabase
+DB_HOST = "db.svvqditsloucflenpuog.supabase.co"
+DB_PORT = "5432" # Om 5432 ger 'Network is unreachable', ändra till "6543" här!
+DB_NAME = "postgres"
+DB_USER = "postgres"
+DB_PASSWORD = os.environ.get('DATABASE_PASSWORD', 'DITT_LÖSENORD')
 
 def init_online_database():
-    """Constructs the long-term Q-learning weight metrics inside the cloud database."""
     try:
-        conn = psycopg2.connect(DB_URL)
+        # Vi kopplar upp oss genom att skicka parametrarna direkt istället för en länk!
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            database=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD
+        )
         cursor = conn.cursor()
-        # Create table for permanent reinforcement learning weights
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS fly_learning_matrix (
                 state_id TEXT PRIMARY KEY,
@@ -29,8 +39,21 @@ def init_online_database():
     except Exception as e:
         print(f"⚠️ [DATABASE ERROR] Cloud Connection Failed: {e}")
 
-# Build structural tables immediately on server deployment boot
-init_online_database()
+# Kom ihåg att uppdatera sync_cloud_memory funktionen på samma sätt:
+def sync_cloud_memory(username, visual_active, audio_active):
+    if username == "None": 
+        return {"curiosity_score": 0.0, "total_interactions": 0}
+        
+    conn = psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD
+    )
+    cursor = conn.cursor()
+    # ... (Resten av din sync_cloud_memory kod fortsätter exakt som innan)
+
 
 # --- TEMP SHORT-TERM PATH REGISTER CACHE (RAM) ---
 temp_path_memory = {
