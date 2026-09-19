@@ -5,27 +5,15 @@ import os
 
 app = Flask(__name__)
 
-# --- 🚀 FIXAD NEON.TECH DATABASKOPPLING (Med fungerande IPv4 + SSL) ---
-# ⚠️ VIKTIGT: Byt ut strängen nedan mot din unika värdadress (host) från din Neon.tech dashboard!
-DB_HOST = "ep-cool-butterfly-a2.eu-central-1.aws.neon.tech" 
-DB_PORT = "5432"  # Neon använder standardporten 5432 utan nätverkshinder
-DB_NAME = "neondb"
-DB_USER = "neondb_owner"
-# Hämtar ditt Neon-lösenord säkert från Renders miljövariabler (DATABASE_PASSWORD)
-DB_PASSWORD = os.environ.get('DATABASE_PASSWORD', 'npg_wMDo26yVEOPU')
+# --- 🚀 AUTOMATISK NEON.TECH UTAN HÅRDKODNING ---
+# Hämtar hela connection stringen direkt från Render (du slipper skriva lösenord här!)
+DB_URL = os.environ.get('postgresql://neondb_owner:npg_wMDo26yVEOPU@ep-soft-firefly-b4o2z2pf-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require')
 
 def init_online_database():
     """Skapar tabellen för Q-learning i Neon.tech om den inte redan finns."""
     try:
-        # sslmode='require' är obligatoriskt för att Neon ska godkänna anslutningen
-        conn = psycopg2.connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            database=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            sslmode='require'
-        )
+        # Ansluter direkt med hela URL-strängen från Render
+        conn = psycopg2.connect(DB_URL)
         cursor = conn.cursor()
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS fly_learning_matrix (
@@ -38,12 +26,15 @@ def init_online_database():
         conn.commit()
         cursor.close()
         conn.close()
-        print("🧠 [DATABASE] Connected to Neon.tech Cloud Q-Learning Core Successfully!")
+        print("🧠 [DATABASE] Connected to Neon.tech via full Connection String Successfully!")
     except Exception as e:
         print(f"⚠️ [DATABASE ERROR] Neon Connection Failed: {e}")
 
 # Kör databasinitieringen direkt vid boot
-init_online_database()
+if DB_URL:
+    init_online_database()
+else:
+    print("⚠️ [DATABASE ERROR] DATABASE_URL missing from Environment Variables!")
 
 # --- INSTÄLLNINGAR FÖR MACHINE LEARNING (Q-LEARNING) ---
 LEARNING_RATE = 0.3
@@ -67,7 +58,7 @@ def get_brain_state(distance, wall_ahead, sound_active):
 
 def query_synapse_weights(state_id):
     try:
-        conn = psycopg2.connect(host=DB_HOST, port=DB_PORT, database=DB_NAME, user=DB_USER, password=DB_PASSWORD, sslmode='require')
+        conn = psycopg2.connect(DB_URL)
         cursor = conn.cursor()
         cursor.execute("SELECT action_0_weight, action_1_weight, action_2_weight FROM fly_learning_matrix WHERE state_id = %s", (state_id,))
         row = cursor.fetchone()
@@ -80,7 +71,7 @@ def query_synapse_weights(state_id):
 
 def update_synapse_weights(state_id, weights):
     try:
-        conn = psycopg2.connect(host=DB_HOST, port=DB_PORT, database=DB_NAME, user=DB_USER, password=DB_PASSWORD, sslmode='require')
+        conn = psycopg2.connect(DB_URL)
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO fly_learning_matrix (state_id, action_0_weight, action_1_weight, action_2_weight)
@@ -135,7 +126,6 @@ def process_brain():
         escape_jump = False
         speech_text = ""
 
-        # Tillämpa motorkrafter baserat på val
         if action == 0:
             motor_X = dir_X if visual_lock else (chat_dir_X if hearing_chat else random.uniform(-0.5, 0.5))
             motor_Z = dir_Z if visual_lock else (chat_dir_Z if hearing_chat else -0.5)
@@ -150,7 +140,7 @@ def process_brain():
         # Spara till temporärt korttidsminne (RAM) om du syns i matrisen
         if visual_lock or player_pixels_detected > 0:
             temp_path_memory["last_known_heading"] = [dir_X, dir_Z]
-            temp_path_memory["retention_ticks"] = 35 # Fortsätter följa stigen i ca 7 sekunder
+            temp_path_memory["retention_ticks"] = 35 # Kommer ihåg stigen i ca 7 sekunder
 
         # Använd temporärt minne om du kliver runt ett hörn
         if not visual_lock and player_pixels_detected == 0 and temp_path_memory["retention_ticks"] > 0:
@@ -161,25 +151,22 @@ def process_brain():
         # --- MACHINE LEARNINGS BELÖNINGSSYSTEM (REWARDS) ---
         reward = 0
         if wall_in_front:
-            # Belöna flugan om den hoppar/backar bort, bestraffa om den ränner in i väggen
             reward = 20 if action == 2 else -30 
         elif visual_lock or player_pixels_detected > 0:
             if player_dist < last_distance_register:
-                reward = 12 # Positiv förstärkning när den rör sig mot dig
+                reward = 12 
             elif player_dist > last_distance_register:
                 reward = -10
             if player_dist < 8:
-                reward = 50 # Stor jackpot-belöning! Den nådde fram.
+                reward = 50 
 
-        # Räkna ut det nya Q-värdet (Bellmans ekvation)
+        # Uppdatera Q-värdet (Bellmans ekvation)
         next_q_values = query_synapse_weights(current_state)
         old_val = q_values[action]
         q_values[action] = (1 - LEARNING_RATE) * old_val + LEARNING_RATE * (reward + DISCOUNT_FACTOR * max(next_q_values))
         
-        # Spara den inlärda datan i Neon-molnet permanent!
         update_synapse_weights(current_state, q_values)
         
-        # Om den känner en vägg, aktivera hoppet direkt på klientsidan
         if wall_in_front:
             escape_jump = True
             speech_text = "BZZT! Object detected! Executing wall-clearing jump circuit!"
