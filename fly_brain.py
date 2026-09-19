@@ -6,7 +6,7 @@ import os
 app = Flask(__name__)
 
 # 🔗 CONNECT TO YOUR PERMANENT ONLINE SUPABASE DATABASE
-DB_URL = os.environ.get('DATABASE_URL', 'postgresql://postgres:WFOQjzvO8gi9LTRD@db.svvqditsloucflenpuog.supabase.co:5432/postgres')
+DB_URL = os.environ.get('DATABASE_URL', 'postgresql://postgres:WFOQjzvO8gi9LTRD@db.svvqditsloucflenpuog.supabase.co:6543/postgres')
 
 def init_online_database():
     """Constructs the long-term Q-learning weight metrics inside the cloud database."""
