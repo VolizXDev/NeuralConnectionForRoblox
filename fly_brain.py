@@ -1,142 +1,150 @@
 from flask import Flask, request, jsonify
+import psycopg2
 import random
-import json
 import os
 
 app = Flask(__name__)
 
-# 💾 FILE STORAGE CONSTANTS FOR PERMANENT MEMORY
-MEMORY_FILE = "fly_biological_memory.json"
+# 🔗 KOBLE TIL DIN GRATIS ONLINE DATABASE (SUPABASE)
+# Lim inn din Connection URI fra Supabase her (eller sett den som Environment Variable i Render)
+DB_URL = os.environ.get('DATABASE_URL', 'LIM_INN_DIN_SUPABASE_CONNECTION_URI_HER')
 
-# Load structural memory charts by construction on startup
-if os.path.exists(MEMORY_FILE):
+def init_online_database():
+    """Oppretter tabellen for langtidshukommelse i skyen hvis den ikke finnes."""
     try:
-        with open(MEMORY_FILE, "r") as f:
-            fly_long_term_memory = json.load(f)
-        print("🧠 [DATABASE] Permanent long-term memory matrix successfully restored from disk!")
-    except Exception:
-        print("⚠️ [DATABASE] Memory file corrupted. Initializing fresh structure.")
-        fly_long_term_memory = {"entities": {}, "world_obstructions": []}
-else:
-    fly_long_term_memory = {
-        "entities": {},        # Long-term behavioral profiles per username
-        "world_obstructions": [] # Coordinate grids where the fly has historically crashed
-    }
-
-def commit_memory_to_disk():
-    """Flushes active RAM memory maps into a permanent JSON file layout."""
-    try:
-        with open(MEMORY_FILE, "w") as f:
-            json.dump(fly_long_term_memory, f, indent=4)
+        conn = psycopg2.connect(DB_URL)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS fly_long_term_memory (
+                username TEXT PRIMARY KEY,
+                curiosity_score REAL,
+                total_interactions INTEGER
+            )
+        ''')
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("🧠 [DATABASE] Koblet til Supabase Cloud Memory permanent.")
     except Exception as e:
-        print(f"⚠️ [DATABASE Error] Failed to write memory to disk: {e}")
+        print(f"⚠️ [DATABASE FEIL] Klarte ikke koble til skyen: {e}")
+
+# Start databasen med en gang serveren booter
+init_online_database()
+
+# --- midlertidig korttidshukommelse (Lagres i RAM-cache for stisporing) ---
+temp_path_memory = {
+    "last_known_heading": [0.0, 0.0],
+    "retention_ticks": 0
+}
+
+def sync_cloud_memory(username, visual_active, audio_active):
+    """Henter og oppdaterer langtidshukommelsen i skyen (Supabase)."""
+    if username == "None": 
+        return {"curiosity_score": 0.0, "total_interactions": 0}
+        
+    conn = psycopg2.connect(DB_URL)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT curiosity_score, total_interactions FROM fly_long_term_memory WHERE username = %s", (username,))
+    row = cursor.fetchone()
+    
+    if row:
+        score, counts = row[0], row[1]
+    else:
+        score, counts = 0.0, 0
+        
+    # Hvis det er aktiv interaksjon i denne framen, oppdaterer vi langtidshukommelsen
+    if visual_active or audio_active:
+        counts += 1
+        score = min(100.0, score + (2.5 if audio_active else 0.1))
+        
+        cursor.execute('''
+            INSERT INTO fly_long_term_memory (username, curiosity_score, total_interactions)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (username) 
+            DO UPDATE SET curiosity_score = EXCLUDED.curiosity_score, total_interactions = EXCLUDED.total_interactions
+        ''', (username, score, counts))
+        conn.commit()
+        
+    cursor.close()
+    conn.close()
+    return {"curiosity_score": score, "total_interactions": counts}
 
 @app.route('/process_brain', methods=['POST'])
 def process_brain():
+    global temp_path_memory
     try:
         data = request.json or {}
         
-        # Identity & Kinematic Tracking Profiles
+        # SANS 1: Syn og identitet (50x50 rutenett)
         username = data.get('player_name', 'None')
         visual_lock = data.get('has_visual_lock', False)
-        player_dist = data.get('player_distance', 999)
         dir_X = data.get('dir_to_player_X', 0.0)
         dir_Z = data.get('dir_to_player_Z', 0.0)
         eye_image = data.get('fly_eye_image', [])
         
-        # Acoustic Vectors (Multi-Modal Channels)
+        # SANS 2: Hørsel (Chat og i-spillet lyder)
         hearing_chat = data.get('is_hearing_chat', False)
-        chat_dist = data.get('chat_distance', 999)
         chat_dir_X = data.get('chat_dir_X', 0.0)
         chat_dir_Z = data.get('chat_dir_Z', 0.0)
         hearing_game = data.get('is_hearing_game', False)
         
-        # Tactile & Collision Data matrices
-        is_stuck = data.get('is_stuck_in_wall', False)
-        fly_position = data.get('fly_position', [0.0, 0.0, 0.0])
-        
-        # Count target elements on the 50x50 retina grid layer (2,500 total elements)
+        # SANS 3: Taktil (Føler gjenstander/vegger foran seg)
+        wall_in_front = data.get('wall_directly_ahead', False)
+
         player_pixels_detected = eye_image.count(2)
         
-        # --- 🏗️ STRUCTURAL PROFILE RETENTION INITIALIZATION ---
-        if username != "None" and username not in fly_long_term_memory["entities"]:
-            fly_long_term_memory["entities"][username] = {
-                "total_frames_observed": 0,
-                "total_acoustic_signals": 0,
-                "times_collided_near_target": 0,
-                "last_known_heading": [0.0, 0.0],
-                "memory_retention_frames": 0,
-                "curiosity_score": 0.0
-            }
-            
-        profile = fly_long_term_memory["entities"].get(username, None)
+        # 📂 SYNKRONISER LANGTIDSHUKOMMELSEN MED SKYEN
+        cloud_data = sync_cloud_memory(username, visual_lock or player_pixels_detected > 0, hearing_chat)
         
-        # Update behavioral memory matrices dynamically
-        if profile:
-            if visual_lock or player_pixels_detected > 0:
-                profile["total_frames_observed"] += 1
-                profile["last_known_heading"] = [dir_X, dir_Z]
-                profile["memory_retention_frames"] = 40  # Remembers target vector heading trail for ~8 seconds
-                profile["curiosity_score"] = min(100.0, profile["curiosity_score"] + 0.1)
-            elif profile["memory_retention_frames"] > 0:
-                profile["memory_retention_frames"] -= 1
-                
-            if hearing_chat:
-                profile["total_acoustic_signals"] += 1
-                profile["curiosity_score"] = min(100.0, profile["curiosity_score"] + 2.5) # Auditory surprise increases memory focus
-                
-            if hearing_game and visual_lock:
-                profile["curiosity_score"] = min(100.0, profile["curiosity_score"] + 0.05)
-                
-        # Structural Environmental Mapping: Record crash sectors to long term database
-        if is_stuck:
-            rounded_coord = [round(fly_position[0], 1), round(fly_position[2], 1)]
-            if rounded_coord not in fly_long_term_memory["world_obstructions"]:
-                fly_long_term_memory["world_obstructions"].append(rounded_coord)
-                if profile: profile["times_collided_near_target"] += 1
-
-        # --- MOTOR NEURON ROUTING MATRIX ---
-        motor_X = 0.0
-        motor_Z = 0.0
+        motor_X, motor_Z = 0.0, 0.0
         escape_jump = False
         speech_text = ""
+
+        # --- HJERNEKRETSENES PRIORITERINGSHIERARKI ---
         
-        if is_stuck:
+        # 1. TAKTIL KRETS: Føler vegg foran seg -> HOPP I STEDET FOR Å GÅ INN I DEN
+        if wall_in_front:
             escape_jump = True
             motor_X = random.choice([-1.0, 1.0])
-            motor_Z = 1.0
-            speech_text = "BZZT! Wall collision obstacle mapped to structural long term memory!"
-            
-        elif hearing_chat and chat_dist < 12:
-            escape_jump = True
-            speech_text = f"BZZT! High chat decibel burst from {username}! Startle reflex triggered!"
-            
+            motor_Z = 1.0  # Tvinger fluen til å hoppe bakover og styre unna veggen
+            speech_text = "BZZT! Object detected in front! Activating obstacle-clearing jump circuit!"
+            print("[TAKTIL SANS] Føler vegg foran seg. Utfører unnavikende hopp.")
+
+        # 2. SYNSKRETS: Aktiv sporing via 50x50 rutenettet
         elif visual_lock or player_pixels_detected > 0:
             motor_X = dir_X
             motor_Z = dir_Z
-            if random.random() < 0.02:
-                speech_text = f"Observing '{username}'. Long-term focus metric: {round(profile['curiosity_score'], 1)}%"
-                
-        elif profile and profile["memory_retention_frames"] > 0:
-            # 🧠 PROCESS LONG-TERM OBJECT PERMANENCE RETENTION
-            motor_X = profile["last_known_heading"][0]
-            motor_Z = profile["last_known_heading"][1]
-            if random.random() < 0.04:
-                speech_text = f"Target '{username}' obstructed. Navigating saved history coordinates..."
-                
+            
+            # Lagre til MIDLERTIDIG KORTTIDSHUKOMMELSE (RAM-cache for stisporing)
+            temp_path_memory["last_known_heading"] = [dir_X, dir_Z]
+            temp_path_memory["retention_ticks"] = 35  # Husker retningen i ca 7 sekunder etter du forsvinner
+            
+            if random.random() < 0.03:
+                speech_text = f"Observing {username}. Long-term cloud score: {round(cloud_data['curiosity_score'], 1)}%"
+
+        # 3. BRUK MIDLERTIDIG KORTTIDSHUKOMMELSE HVIS BLIND (Stisporing bak vegger)
+        elif temp_path_memory["retention_ticks"] > 0:
+            motor_X = temp_path_memory["last_known_heading"][0]
+            motor_Z = temp_path_memory["last_known_heading"][1]
+            temp_path_memory["retention_ticks"] -= 1  # Minnet svekkes for hver frame
+            
+            if random.random() < 0.05:
+                speech_text = f"Target lost. Running temporary short-term memory traces for {username}..."
+                print(f"[KORTTIDSHUKOMMELSE] Følger stien til {username}. Ticks igjen: {temp_path_memory['retention_ticks']}")
+
+        # 4. HØRSELSKRETS: Reagerer på chat-meldinger
         elif hearing_chat:
             motor_X = chat_dir_X
             motor_Z = chat_dir_Z
             
         else:
+            # Baseline rolig modus (Tilfeldig surring)
             motor_X = random.uniform(-1.0, 1.0)
             motor_Z = random.uniform(-1.0, 1.0)
-            if random.random() < 0.01:
-                speech_text = "Bzzt... Baseline environment quiet. Memory arrays fully structural."
-                
-        # Commit all memory structural configurations to file storage permanently
-        commit_memory_to_disk()
-        
+            if hearing_game and random.random() < 0.05:
+                speech_text = "Bzz... I can hear movement vibrations in the game..."
+            
         return jsonify({
             "motor_X": motor_X,
             "motor_Z": motor_Z,
