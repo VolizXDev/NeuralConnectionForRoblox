@@ -3,88 +3,86 @@ import random
 
 app = Flask(__name__)
 
-# 🧠 BIOLOGICAL MEMORY REGISTERS
+# Brain retention memory storage
 last_known_vector = [0.0, 0.0]
-memory_retention_timer = 0  # Number of processing frames to remember a hidden target
+memory_retention_timer = 0
 
-@app.route('/process_brain', methods=['GET', 'POST'])
+@app.route('/process_brain', methods=['POST'])
 def process_brain():
     global last_known_vector, memory_retention_timer
-    
-    if request.method == 'GET':
-        return jsonify({"message": "Permanent Multi-Sensory Memory Brain Active!"})
-
     try:
         data = request.json or {}
         
-        # Sense Layer 1: 40x40 Optical Grid Matrix
+        # Sensory Layer 1: 50x50 Retina Matrix
         visual_lock = data.get('has_visual_lock', False)
         dir_X = data.get('dir_to_player_X', 0)
         dir_Z = data.get('dir_to_player_Z', 0)
         eye_image = data.get('fly_eye_image', [])
         
-        # Sense Layer 2: Acoustic Audio Waves
+        # Sensory Layer 2: Acoustic Channels (Chat & Game World)
         hearing_chat = data.get('is_hearing_chat', False)
         chat_dist = data.get('chat_distance', 999)
         chat_dir_X = data.get('chat_dir_X', 0)
         chat_dir_Z = data.get('chat_dir_Z', 0)
+        hearing_game = data.get('is_hearing_game', False)
         
-        # Output States Initialization
+        # Sensory Layer 3: Physical Tactile Collision
+        is_stuck = data.get('is_stuck_in_wall', False)
+        
         motor_X = 0.0
         motor_Z = 0.0
-        should_jump = False
+        escape_jump = False
         speech_text = ""
         
         player_pixels_detected = eye_image.count(2)
         
-        # 🔊 HOPPING SENSORY NEURON: Startle reflex triggers a jump if sound is very close
-        if hearing_chat and chat_dist < 15:
-            should_jump = True
-            speech_text = "BZZT! Startle acoustic reflex! *JUMP*"
-            print("[REFLEX] Jump circuit activated via nearby chat sound proximity.")
+        # 🧠 TACTILE REFLEX ROADBLOCK CIRCUIT: Jump instantly if hitting a wall structure
+        if is_stuck:
+            escape_jump = True
+            # Force the motor grid to change course drastically
+            motor_X = random.choice([-1.0, 1.0])
+            motor_Z = 1.0 # Back away from collision zone
+            speech_text = "BZZT! Obstacle collision detected! Executing wall clearing jump!"
+            print("[TACTILE REFLEX] Wall obstruction registered. Deploying jump force field.")
             
-        # 🧠 BEHAVIORAL PATTERN HIERARCHY MATRICES:
-        if visual_lock or player_pixels_detected > 0:
-            # Hierarchy 1: Player is visible on the 40x40 retina layout array
+        # 🔊 STARTLE REFLEX CIRCUIT: Jump if someone yells close by in text chat
+        elif hearing_chat and chat_dist < 12:
+            escape_jump = True
+            speech_text = "BZZT! Startled by chat wave frequency! *JUMP*"
+            print("[ACOUSTIC REFLEX] Large chat decibel spike. Firing jump mechanism.")
+            
+        # 🧠 LOCOMOTION DECISION MATRICES
+        elif visual_lock or player_pixels_detected > 0:
             motor_X = dir_X
             motor_Z = dir_Z
-            
-            # Continuously update long-term location path retention memory
             last_known_vector = [dir_X, dir_Z]
-            memory_retention_timer = 15  # Retain path coordinates for roughly 3 seconds
-            print(f"[VISION LOCK] Tracking path directly. Pixels: {player_pixels_detected}/1600")
-            
+            memory_retention_timer = 15
+            if hearing_game and random.random() < 0.05:
+                speech_text = "Bzz! I see you and hear your footsteps!"
+                
         elif memory_retention_timer > 0:
-            # Hierarchy 2: Player hid! Execute short-term path retention tracking loop
-            motor_X = last_known_vector[0]
-            motor_Z = last_known_vector[1]
+            motor_X = last_known_vector
+            motor_Z = last_known_vector
             memory_retention_timer -= 1
             
-            if random.random() < 0.15:
-                speech_text = "Bzzt... Searching last known memory coordinates..."
-            print(f"[PATH RETENTION] Blind to target. Navigating memory matrix. Steps remaining: {memory_retention_timer}")
-            
         elif hearing_chat:
-            # Hierarchy 3: Blind and no vision memory, but tracking new chat sound waves
             motor_X = chat_dir_X
             motor_Z = chat_dir_Z
-            print(f"[ACOUSTIC TRACKING] Snapping motor heading vectors toward chat audio coordinates.")
             
         else:
-            # Hierarchy 4: Quiet environment, empty canvas mapping. Wander freely.
             motor_X = random.uniform(-1.0, 1.0)
             motor_Z = random.uniform(-1.0, 1.0)
             if random.random() < 0.02:
-                speech_text = "Bzzt... Scanning environment open airspace..."
+                speech_text = "Bzzt... Space scan clear..."
                 
         return jsonify({
             "motor_X": motor_X,
             "motor_Z": motor_Z,
-            "should_jump": should_jump,
+            "escape_jump": escape_jump,
             "speech_text": speech_text
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=False)
