@@ -3,83 +3,55 @@ import random
 
 app = Flask(__name__)
 
-# Basic storage for fly reinforcement learning values
-q_table = {}
-learning_rate = 0.2
-discount_factor = 0.9
-epsilon = 0.3
-last_distance = 999
-
-def get_state(distance):
-    if distance < 5: return "touching"
-    if distance < 15: return "near"
-    if distance < 40: return "far"
-    return "blind"
-
-@app.route('/')
-def dashboard():
-    return "🧠 Fruit Fly Lab Server is running smoothly on the web!"
-
 @app.route('/process_brain', methods=['GET', 'POST'])
 def process_brain():
-    global last_distance, epsilon
-    
     if request.method == 'GET':
-        return jsonify({"message": "Server is actively hunting!"})
+        return jsonify({"message": "20x20 Biological Eye Server is live!"})
 
     try:
         data = request.json or {}
         visual_lock = data.get('has_visual_lock', False)
         player_dist = data.get('player_distance', 999)
-        dir_X = data.get('dir_to_player_X', 0)
-        dir_Z = data.get('dir_to_player_Z', 0)
+        eye_image = data.get('fly_eye_image', [])
         
-        state = get_state(player_dist)
+        # Sjekk at vi faktisk fikk 400 piksler (20x20)
+        if len(eye_image) == 400:
+            print("\n--- 👁️ FLUE-REMS LIVE BILDE (20x20 piksler) ---")
+            for i in range(0, 400, 20):
+                row = []
+                for pixel in eye_image[i:i+20]:
+                    if pixel == 2:
+                        row.append("🎯") # Fluen ser DEG (Rødt/mål)
+                    elif pixel == 1:
+                        row.append("█") # Fluen ser en vegg (Grå/hindring)
+                    else:
+                        row.append(".") # Åpen luft (Ingenting)
+                print("".join(row))
+            print("-----------------------------------------------")
+
+        # Nevrale kretsers beslutning basert på bildet
+        motor_X = 0.0
+        motor_Z = 0.0
         
-        # Action selector mechanics
-        if random.uniform(0, 1) < epsilon:
-            # Pick a random fallback action path
-            action = random.choice([0, 1, 2])
+        # Teller hvor mange piksler av spilleren fluen ser totalt
+        player_pixels = eye_image.count(2)
+        
+        if player_pixels > 0:
+            # Jakt-refleks: Beveg deg i retning av der flest spiller-piksler er registrert
+            # Enkelt sagt: Søk mot målet
+            motor_X = random.uniform(-0.1, 0.1)
+            # Hvis spilleren er langt unna, gå framover
+            motor_Z = -0.8
+            print(f"[HJERNE] Ser spilleren i {player_pixels} piksler! Angriper.")
         else:
-            if state not in q_table:
-                q_table[state] = [0.0, 0.0, 0.0]
-            action = q_table[state].index(max(q_table[state]))
-            
-        # Translate matrix weights into actual direction vectors
-        if action == 0:
-            motor_X = dir_X + random.uniform(-0.02, 0.02)
-            motor_Z = dir_Z + random.uniform(-0.02, 0.02)
-        elif action == 1:
+            # Spontan vandring hvis bildet er tomt for spillere
             motor_X = random.uniform(-1.0, 1.0)
             motor_Z = random.uniform(-1.0, 1.0)
-        else:
-            motor_X = -dir_X
-            motor_Z = -dir_Z
-
-        # Brain adjustment reward protocols
-        if visual_lock and player_dist != 999:
-            reward = 10 if player_dist < last_distance else -5
-            if player_dist < 5: reward = 50
-                
-            if state not in q_table:
-                q_table[state] = [0.0, 0.0, 0.0]
-                
-            next_state = get_state(player_dist)
-            if next_state not in q_table:
-                q_table[next_state] = [0.0, 0.0, 0.0]
-                
-            old_val = q_table[state][action]
-            next_max = max(q_table[next_state])
+            print("[HJERNE] Ingen spiller funnet i 20x20-matrisen. Vandrer.")
             
-            q_table[state][action] = (1 - learning_rate) * old_val + learning_rate * (reward + discount_factor * next_max)
-            
-            if epsilon > 0.05:
-                epsilon -= 0.001
-
-        last_distance = player_dist
         return jsonify({"motor_X": motor_X, "motor_Z": motor_Z})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
