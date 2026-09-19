@@ -5,14 +5,12 @@ import os
 
 app = Flask(__name__)
 
-# --- 🚀 AUTOMATISK NEON.TECH UTAN HÅRDKODNING ---
-# Hämtar hela connection stringen direkt från Render (du slipper skriva lösenord här!)
+# Hämtar hela anslutningssträngen automatiskt från Render (DATABASE_URL)
 DB_URL = os.environ.get('DATABASE_URL')
 
 def init_online_database():
     """Skapar tabellen för Q-learning i Neon.tech om den inte redan finns."""
     try:
-        # Ansluter direkt med hela URL-strängen från Render
         conn = psycopg2.connect(DB_URL)
         cursor = conn.cursor()
         cursor.execute('''
@@ -26,35 +24,40 @@ def init_online_database():
         conn.commit()
         cursor.close()
         conn.close()
-        print("🧠 [DATABASE] Connected to Neon.tech via full Connection String Successfully!")
+        print("🧠 [DATABASE] Connected to Neon.tech Cloud Learning Core Successfully!")
     except Exception as e:
         print(f"⚠️ [DATABASE ERROR] Neon Connection Failed: {e}")
 
-# Kör databasinitieringen direkt vid boot
 if DB_URL:
     init_online_database()
-else:
-    print("⚠️ [DATABASE ERROR] DATABASE_URL missing from Environment Variables!")
 
-# --- INSTÄLLNINGAR FÖR MACHINE LEARNING (Q-LEARNING) ---
-LEARNING_RATE = 0.3
-DISCOUNT_FACTOR = 0.8
-EPSILON = 0.20  # 20% chans till slumpmässig handling för att lära sig, 80% att använda bästa spår
+# --- ⚙️ INSTÄLLNINGAR FÖR HUMAN INLÄRNING ---
+LEARNING_RATE = 0.25
+DISCOUNT_FACTOR = 0.85
+EPSILON = 0.20  # 20% utforskning (slumpmässiga WASD-tryck), 80% utnyttjande av inlärda mänskliga stigar
 last_distance_register = 999
 
-# --- TEMPORÄRT KORTTIDSMINNE (RAM-cache för stisporing) ---
+# --- 🧠 KORTTIDSMINNE OCH RÖRELSEREGISTER (RAM) ---
 temp_path_memory = {
     "last_known_heading": [0.0, 0.0],
-    "retention_ticks": 0
+    "retention_ticks": 0,
+    "current_walk_direction": [0.0, -1.0], 
+    "walk_hold_frames": 0  # Hur många frames "människan" håller ner en tangent
 }
 
+# --- 🎮 MÄNSKLIGA CHATTUTTRYCK ---
+chat_patrol = ["Let's go find some loot.", "Bro, this server is kinda quiet.", "Heading to the next zone.", "Checking the perimeter."]
+chat_combat = ["Ayo I see you! Don't run!", "Target locked on my 50x50 retina!", "Bruh, stop camping behind that wall!", "Going aggressive, watch out."]
+chat_stuck = ["Bro, who placed this wall here?", "Map geometry blocking my path smh.", "Tactical sidestep jump to clear the angle!", "Lag spike pushed me into a brick."]
+
 def get_brain_state(distance, wall_ahead, sound_active):
-    if wall_ahead: return "stuck_near_object"
+    """Kategoriserar 3D-världen till diskreta tillstånd för maskininlärningen."""
+    if wall_ahead: return "human_stuck_wall"
     if sound_active and distance > 40: return "hearing_noise_far"
-    if distance < 8: return "touching_player"
-    if distance < 25: return "near_player"
-    if distance < 65: return "far_player"
-    return "searching_empty_void"
+    if distance < 8: return "human_close_combat"
+    if distance < 25: return "human_near_target"
+    if distance < 65: return "human_searching_target"
+    return "human_patrol_void"
 
 def query_synapse_weights(state_id):
     try:
@@ -93,7 +96,7 @@ def process_brain():
     try:
         data = request.json or {}
         
-        # SANS 1: Identitet & Syn (50x50 synmatris = 2500 piksler)
+        # SANS 1: Identitet & Syn (50x50 rutenett = 2500 piksler)
         username = data.get('player_name', 'Player')
         visual_lock = data.get('has_visual_lock', False)
         dir_X = data.get('dir_to_player_X', 0.0)
@@ -113,12 +116,12 @@ def process_brain():
         player_pixels_detected = eye_image.count(2)
         current_state = get_brain_state(player_dist, wall_in_front, hearing_chat or hearing_game)
         
-        # Hämta sparad matris från Neon-databasen (Långtidsminne)
+        # Hämta sparade Q-värden från Neon
         q_values = query_synapse_weights(current_state)
         
-        # Algoritmiskt val baserat på erfarenhet (Epsilon-Greedy)
+        # Mänskligt val via Epsilon-Greedy (Utforska eller använd minne)
         if random.random() < EPSILON:
-            action = random.choice() # 0 = Gå framåt, 1 = Gå sidelängs, 2 = Hoppa/Backa
+            action = random.choice() # 0 = Gå Rakt (W), 1 = Strafe Sidleds (A/D), 2 = Taktiskt Hopp/Backa (S+Space)
         else:
             action = q_values.index(max(q_values))
 
@@ -126,50 +129,66 @@ def process_brain():
         escape_jump = False
         speech_text = ""
 
-        if action == 0:
-            motor_X = dir_X if visual_lock else (chat_dir_X if hearing_chat else random.uniform(-0.5, 0.5))
-            motor_Z = dir_Z if visual_lock else (chat_dir_Z if hearing_chat else -0.5)
-        elif action == 1:
-            motor_X = random.choice([-1.5, 1.5])
-            motor_Z = random.uniform(-0.2, 0.2)
-        else:
+        # Översätt inlärda beslut till raka, kontrollerade tangentbordsrörelser
+        if action == 0: # GÅ RAKT (W)
+            if visual_lock:
+                motor_X = dir_X * 1.5
+                motor_Z = dir_Z * 1.5
+            elif hearing_chat:
+                motor_X = chat_dir_X * 1.4
+                motor_Z = chat_dir_Z * 1.4
+            else:
+                # Patrullera i en rak linje i flera frames (Gå som en människa)
+                if temp_path_memory["walk_hold_frames"] <= 0:
+                    temp_path_memory["current_walk_direction"] = [random.uniform(-1.0, 1.0), random.uniform(-1.0, 1.0)]
+                    temp_path_memory["walk_hold_frames"] = random.randint(15, 35)
+                motor_X = temp_path_memory["current_walk_direction"] * 0.8
+                motor_Z = temp_path_memory["current_walk_direction"] * 0.8
+                temp_path_memory["walk_hold_frames"] -= 1
+        elif action == 1: # STRAFE (Sidledsrörelse A / D)
+            motor_X = random.choice([-2.0, 2.0])
+            motor_Z = random.uniform(-0.1, 0.1)
+        else: # BACKA OCH HOPPA (S + Space)
             motor_X = -dir_X if visual_lock else random.uniform(-1.0, 1.0)
-            motor_Z = 1.0
-            if wall_in_front or hearing_chat: escape_jump = True
+            motor_Z = 1.2
+            if wall_in_front: escape_jump = True
 
-        # Spara till temporärt korttidsminne (RAM) om du syns i matrisen
+        # Spara till temporärt korttidsminne (RAM) om du syns
         if visual_lock or player_pixels_detected > 0:
             temp_path_memory["last_known_heading"] = [dir_X, dir_Z]
             temp_path_memory["retention_ticks"] = 35 # Kommer ihåg stigen i ca 7 sekunder
 
-        # Använd temporärt minne om du kliver runt ett hörn
+        # Använd temporärt minne (Stisporing runt hörn)
         if not visual_lock and player_pixels_detected == 0 and temp_path_memory["retention_ticks"] > 0:
-            motor_X = temp_path_memory["last_known_heading"]
-            motor_Z = temp_path_memory["last_known_heading"]
+            motor_X = temp_path_memory["last_known_heading"] * 1.3
+            motor_Z = temp_path_memory["last_known_heading"] * 1.3
             temp_path_memory["retention_ticks"] -= 1
 
-        # --- MACHINE LEARNINGS BELÖNINGSSYSTEM (REWARDS) ---
+        # --- 💥 REINFORCEMENT LEARNING REWARD MATRIS ---
         reward = 0
         if wall_in_front:
-            reward = 20 if action == 2 else -30 
+            # Belöna flugan stort om den lär sig att STRAFA (Action 1) eller HOPPA (Action 2) runt väggar
+            reward = 25 if (action == 1 or action == 2) else -35
+            escape_jump = True
+            if random.random() < 0.20: speech_text = random.choice(chat_stuck)
         elif visual_lock or player_pixels_detected > 0:
             if player_dist < last_distance_register:
-                reward = 12 
-            elif player_dist > last_distance_register:
+                reward = 15  # Belöning för att minska avståndet till dig (W-press)
+            else:
                 reward = -10
             if player_dist < 8:
-                reward = 50 
+                reward = 60  # Jackpot! Den nådde mänsklig närstrid
+                if random.random() < 0.05: speech_text = random.choice(combat_chat)
+        else:
+            if random.random() < 0.01: speech_text = random.choice(chat_patrol)
 
-        # Uppdatera Q-värdet (Bellmans ekvation)
+        # Bellman Optimeringsekvation
         next_q_values = query_synapse_weights(current_state)
         old_val = q_values[action]
         q_values[action] = (1 - LEARNING_RATE) * old_val + LEARNING_RATE * (reward + DISCOUNT_FACTOR * max(next_q_values))
         
+        # Spara vikterna i Neon permanent!
         update_synapse_weights(current_state, q_values)
-        
-        if wall_in_front:
-            escape_jump = True
-            speech_text = "BZZT! Object detected! Executing wall-clearing jump circuit!"
 
         last_distance_register = player_dist
         return jsonify({"motor_X": motor_X, "motor_Z": motor_Z, "escape_jump": escape_jump, "speech_text": speech_text})
