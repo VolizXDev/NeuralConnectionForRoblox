@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 # --- 🚀 AUTOMATISK NEON.TECH UTAN HÅRDKODNING ---
 # Hämtar hela connection stringen direkt från Render (du slipper skriva lösenord här!)
-DB_URL = os.environ.get('postgresql://neondb_owner:npg_wMDo26yVEOPU@ep-soft-firefly-b4o2z2pf-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require')
+DB_URL = os.environ.get('DATABASE_URL')
 
 def init_online_database():
     """Skapar tabellen för Q-learning i Neon.tech om den inte redan finns."""
