@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 # 🔗 KOBLE TIL DIN GRATIS ONLINE DATABASE (SUPABASE)
 # Lim inn din Connection URI fra Supabase her (eller sett den som Environment Variable i Render)
-DB_URL = os.environ.get('DATABASE_URL', 'LIM_INN_DIN_SUPABASE_CONNECTION_URI_HER')
+DB_URL = os.environ.get('DATABASE_URL', 'postgresql://postgres:WFOQjzvO8gi9LTRD@db.svvqditsloucflenpuog.supabase.co:5432/postgres')
 
 def init_online_database():
     """Oppretter tabellen for langtidshukommelse i skyen hvis den ikke finnes."""
