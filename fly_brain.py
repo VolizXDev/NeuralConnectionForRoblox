@@ -11,7 +11,7 @@ DB_PORT = "6543"  # Ändrat till 6543 för att lösa "Network is unreachable" vi
 DB_NAME = "postgres"
 DB_USER = "postgres"
 # Hämtar ditt lösenord säkert från Renders miljövariabler (DATABASE_PASSWORD)
-DB_PASSWORD = os.environ.get('DATABASE_PASSWORD', 'DITT_LÖSENORD_HÄR')
+DB_PASSWORD = os.environ.get('DATABASE_PASSWORD', 'WFOQjzvO8gi9LTRD')
 
 def init_online_database():
     """Skapar tabellen för Q-learning i Supabase om den inte redan finns."""
